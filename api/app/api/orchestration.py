@@ -27,6 +27,8 @@ from app.api.dependencies import (
     is_privileged_reader,
 )
 from app.auditor_audit import auditor_audit
+from app.authz.documents import require_document_matter_access
+from app.authz.matters import require_matter
 from app.autonomous.orchestration.assembly import planning_message, planning_tools
 from app.autonomous.orchestration.chat_demo import PACKET, PROFILE, packet
 from app.autonomous.orchestration.contracts import (
@@ -136,7 +138,8 @@ async def owner_for_read(
 
     The owner reads their own run. An admin or an auditor
     (``is_privileged_reader``) may read another owner's run and how its
-    sessions were set up, and each such read writes one ``auditor`` audit
+    sessions were set up, subject to the caller's matter and source access.
+    Each permitted read writes one ``auditor`` audit
     row before anything is returned. For anyone else, and for a run that
     does not exist, the caller's own id is returned: the read then applies
     its owner filter and answers 404 for both alike.
@@ -145,9 +148,16 @@ async def owner_for_read(
     working files stay with the owner.
     """
     async with runtime.store.sessions() as db:
-        owner_id: UUID | None = await db.scalar(
-            select(OrchestrationRoot.owner_id).where(OrchestrationRoot.session_id == root_id)
-        )
+        root = await db.get(OrchestrationRoot, root_id)
+        if root is not None and (root.owner_id == user.id or is_privileged_reader(user)):
+            if root.project_id is not None:
+                await require_matter(db, root.project_id, user, include_archived=True)
+            documents = [
+                UUID(str(d["document_id"]))
+                for d in (root.planning_snapshot or {}).get("documents", [])
+            ]
+            await require_document_matter_access(db, documents, user)
+        owner_id = root.owner_id if root is not None else None
         if owner_id is None or owner_id == user.id or not is_privileged_reader(user):
             return user.id
         await auditor_audit(
@@ -211,6 +221,7 @@ async def begin_run(
             return retained
         privileged, tier = False, 5
         if project_id is not None:
+            await require_matter(db, project_id, user, need="write")
             project = await db.scalar(
                 select(Project).where(
                     Project.id == project_id,

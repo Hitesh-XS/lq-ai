@@ -112,6 +112,9 @@ def _serialize_message(message: Message) -> dict[str, Any]:
         "id": str(message.id),
         "chat_id": str(message.chat_id),
         "role": message.role,
+        "directed_by_user_id": str(message.directed_by_user_id)
+        if message.directed_by_user_id
+        else None,
         "kind": message.kind,
         # Set on a run message: the run in ``orchestration_runs.json``.
         "autonomous_session_id": str(message.autonomous_session_id)
@@ -384,6 +387,12 @@ deleted and a status-poll on this job will report it expired.
 async def _build_zip(session: AsyncSession, user: User) -> bytes:
     """Assemble the export ZIP for ``user`` and return the bytes."""
 
+    from app.authz.matters import blocked_project_ids
+    from app.errors import Forbidden
+
+    blocked = (await session.execute(blocked_project_ids(user))).scalars().all()
+    if blocked:
+        raise Forbidden("Export requires reconciliation of screened matter content.")
     buffer = io.BytesIO()
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -493,7 +502,10 @@ async def _build_zip(session: AsyncSession, user: User) -> bytes:
         attrib_rows = (
             (
                 await session.execute(
-                    select(WorkProductAttribution).where(WorkProductAttribution.user_id == user.id)
+                    select(WorkProductAttribution).where(
+                        (WorkProductAttribution.user_id == user.id)
+                        | WorkProductAttribution.message_id.in_([m.id for m in messages])
+                    )
                 )
             )
             .scalars()

@@ -299,6 +299,7 @@ export type MessageKind = 'user' | 'ai' | 'refusal' | 'system' | 'run';
 export interface Message {
 	id: string;
 	chat_id: string;
+	directed_by_user_id?: string | null;
 	role: MessageRole;
 	content: string;
 	/**

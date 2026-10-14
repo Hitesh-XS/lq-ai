@@ -119,6 +119,20 @@ async def read_tree(
         )
         if root is None or root.profile == "demonstration":
             raise NotFound(message="Orchestration root not found")
+        from app.authz.matters import require_matter
+        from app.models.user import User
+
+        user = await db.get(User, actor_id)
+        if user is None:
+            raise NotFound("Orchestration root not found")
+        if root.project_id is not None:
+            await require_matter(db, root.project_id, user, include_archived=True)
+        from app.authz.documents import require_document_matter_access
+
+        selected = [
+            UUID(str(d["document_id"])) for d in (root.planning_snapshot or {}).get("documents", [])
+        ]
+        await require_document_matter_access(db, selected, user)
         if root.current_revision is None:
             # Still planning, ended before a plan, or answered without one.
             raise Conflict(message="This run has no plan; use the chat run view")
@@ -250,6 +264,21 @@ async def read_workspace_file(
         )
         if row is None:
             raise NotFound(message="Workspace file not found")
+        root = await db.get(Root, root_id)
+        from app.authz.matters import require_matter
+        from app.models.user import User
+
+        user = await db.get(User, actor_id)
+        if root is None or user is None:
+            raise NotFound("Workspace file not found")
+        if root.project_id is not None:
+            await require_matter(db, root.project_id, user, include_archived=True)
+        from app.authz.documents import require_document_matter_access
+
+        selected = [
+            UUID(str(d["document_id"])) for d in (root.planning_snapshot or {}).get("documents", [])
+        ]
+        await require_document_matter_access(db, selected, user)
         return WorkspaceContent(**file_metadata(row).model_dump(), content=row.content)
 
 
@@ -375,6 +404,20 @@ async def read_chat_run(
         )
         if root is None:
             raise NotFound(message="Orchestration chat not found")
+        from app.authz.matters import require_matter
+        from app.models.user import User
+
+        user = await db.get(User, actor_id)
+        if user is None:
+            raise NotFound("Orchestration root not found")
+        if root.project_id is not None:
+            await require_matter(db, root.project_id, user, include_archived=True)
+        from app.authz.documents import require_document_matter_access
+
+        selected = [
+            UUID(str(d["document_id"])) for d in (root.planning_snapshot or {}).get("documents", [])
+        ]
+        await require_document_matter_access(db, selected, user)
         bound = (
             await db.execute(
                 select(Message.chat_id, Message.id, Message.content).where(

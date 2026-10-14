@@ -52,11 +52,13 @@ from uuid import UUID
 from sqlalchemy import Select, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.authz.matters import denied_file_ids, denied_kb_ids, matter_scope_filter
 from app.models.document import Document
 from app.models.file import File
 from app.models.knowledge import KnowledgeBase, KnowledgeBaseFile
 from app.models.project import Project, ProjectFile
 from app.models.project_knowledge_base import ProjectKnowledgeBase
+from app.models.user import User
 
 
 def held_through_a_knowledge_base(project: Any = None) -> Any:
@@ -110,6 +112,14 @@ def filed_in_matter(project_id: UUID) -> Any:
     )
 
 
+def file_access_filter(owner_id: UUID) -> Any:
+    """Keep the live matter read grant and transitive screens on owned sources."""
+    return File.id.not_in(denied_file_ids(owner_id)) & (
+        File.project_id.is_(None)
+        | File.project_id.in_(select(Project.id).where(matter_scope_filter(User(id=owner_id))))
+    )
+
+
 def readable_documents(
     *, owner_id: UUID, project_id: UUID | None, document_ids: Collection[UUID]
 ) -> Select[tuple[UUID]]:
@@ -125,6 +135,7 @@ def readable_documents(
             Document.id.in_(document_ids),
             File.owner_id == owner_id,
             File.deleted_at.is_(None),
+            file_access_filter(owner_id),
         )
     )
     if project_id is None:
@@ -396,6 +407,11 @@ def searchable_knowledge_bases(
             KnowledgeBase.id.in_(knowledge_base_ids),
             KnowledgeBase.owner_id == owner_id,
             KnowledgeBase.archived_at.is_(None),
+            KnowledgeBase.id.not_in(denied_kb_ids(owner_id)),
+            KnowledgeBase.project_id.is_(None)
+            | KnowledgeBase.project_id.in_(
+                select(Project.id).where(matter_scope_filter(User(id=owner_id)))
+            ),
             ProjectKnowledgeBase.project_id == project_id,
         )
     )
@@ -409,6 +425,11 @@ def attached_knowledge_bases(*, owner_id: UUID, project_id: UUID) -> Select[tupl
         .where(
             KnowledgeBase.owner_id == owner_id,
             KnowledgeBase.archived_at.is_(None),
+            KnowledgeBase.id.not_in(denied_kb_ids(owner_id)),
+            KnowledgeBase.project_id.is_(None)
+            | KnowledgeBase.project_id.in_(
+                select(Project.id).where(matter_scope_filter(User(id=owner_id)))
+            ),
             ProjectKnowledgeBase.project_id == project_id,
         )
         .order_by(ProjectKnowledgeBase.attached_at, KnowledgeBase.id)

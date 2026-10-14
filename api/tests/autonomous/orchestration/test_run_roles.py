@@ -4,7 +4,7 @@
   or reject one. The route refuses, and so does the store behind it.
 * A viewer still reads their own run and can halt it: halting only narrows
   authority.
-* An admin or an auditor may read another owner's run, its plan and how its
+* An admin or an auditor with matter read access may read another owner's run, its plan and how its
   sessions were set up. Each such read writes one audit row. They cannot act
   on it, and the route that serves a working file refuses them. That route
   protects less than it sounds: a task's findings are in the tree, and a note
@@ -37,10 +37,12 @@ from tests.autonomous.orchestration.model_harness import (
 
 from app.api.dependencies import get_active_user
 from app.api.orchestration import begin_run
-from app.errors import Forbidden
+from app.errors import Forbidden, NotFound
 from app.main import app
 from app.models.audit import AuditLog
+from app.models.chat import Chat
 from app.models.orchestration import OrchestrationRoot
+from app.models.project_member import ProjectMember
 from app.models.user import User
 
 pytestmark = pytest.mark.integration
@@ -60,7 +62,7 @@ async def roles(model_demo: SimpleNamespace) -> AsyncIterator[SimpleNamespace]:
     api.gateway.synthesis_answer = "## Answer\n\nFrom general knowledge only."
     created: list[UUID] = []
 
-    async def someone(role: str, *, admin: bool = False) -> User:
+    async def someone(role: str, *, admin: bool = False, matter_read: bool = False) -> User:
         async with api.env.factory.begin() as db:
             user = User(
                 email=f"{role}-{uuid4()}@example.com",
@@ -72,6 +74,8 @@ async def roles(model_demo: SimpleNamespace) -> AsyncIterator[SimpleNamespace]:
             db.add(user)
             await db.flush()
             created.append(user.id)
+            if matter_read:
+                db.add(ProjectMember(project_id=api.env.project_id, user_id=user.id, role="reader"))
             return user
 
     async def owner_as(role: str) -> User:
@@ -173,16 +177,16 @@ async def test_the_store_refuses_a_read_only_role_where_no_route_stands_in_front
     root_id = UUID(planned["root_id"])
     viewer = await api.owner_as("viewer")
 
-    with pytest.raises(Forbidden, match="read-only role cannot approve or reject"):
+    with pytest.raises(Forbidden, match=r"requires .write. access to the matter"):
         await api.runtime.store.approve(root_id, actor_id=viewer.id, **approval(planned))
-    with pytest.raises(Forbidden, match="read-only role cannot approve or reject"):
+    with pytest.raises(Forbidden, match=r"requires .write. access to the matter"):
         await api.runtime.store.reject(
             root_id, actor_id=viewer.id, revision=planned["tree"]["plan"]["revision"]
         )
     assert (await read(api, planned["root_id"]))["status"] == "awaiting_approval"
     # Halt the first so that only the role stands between the viewer and a new run.
     assert (await api.client.post(f"{BASE}/chat-runs/{root_id}/halt")).status_code == 200
-    with pytest.raises(Forbidden, match="read-only role cannot start a run"):
+    with pytest.raises(Forbidden, match=r"requires .write. access to the matter"):
         await begin_run(
             api.runtime.for_profile(PROFILE),
             user=viewer,
@@ -275,7 +279,7 @@ async def test_a_privileged_reader_reads_another_owners_run_and_each_read_is_aud
     owner_file = await api.client.get(f"{BASE}/{root}/files/{child}/findings.json")
     assert owner_file.status_code == 200 and owner_file.json()["content"]
 
-    reader = await api.someone(role, admin=admin)
+    reader = await api.someone(role, admin=admin, matter_read=True)
     api.act_as(reader)
 
     run = await api.client.get(f"{BASE}/chat-runs/{root}")
@@ -316,7 +320,7 @@ async def test_the_owner_sees_in_the_receipts_who_read_their_run(roles: SimpleNa
     api = roles
     value = await start_in_chat(api, await new_chat(api), profile=PROFILE)
     await run_to_completion(api, value)
-    reader = await api.someone("auditor")
+    reader = await api.someone("auditor", matter_read=True)
     api.act_as(reader)
     assert (await api.client.get(f"{BASE}/chat-runs/{value['root_id']}")).status_code == 200
 
@@ -426,7 +430,7 @@ async def test_what_a_privileged_reader_sees_of_a_tasks_work_without_the_file_ro
     assert note.status_code == 200 and note.json()["content"] == "NOTE-TEXT: fees are due."
     assert findings.status_code == 200 and "FINDINGS-TEXT" in findings.json()["content"]
 
-    api.act_as(await api.someone("auditor"))
+    api.act_as(await api.someone("auditor", matter_read=True))
     for name in ("note-fees.md", "findings.json"):
         assert (await api.client.get(f"{BASE}/{root}/files/{child}/{name}")).status_code == 404
     tree = await api.client.get(f"{BASE}/{root}/tree")
@@ -434,3 +438,65 @@ async def test_what_a_privileged_reader_sees_of_a_tasks_work_without_the_file_ro
     assert tree.status_code == 200 and trace.status_code == 200
     assert "FINDINGS-TEXT" in tree.text
     assert "NOTE-TEXT: fees are due." in trace.text
+
+
+@pytest.mark.parametrize(("role", "admin"), [("auditor", False), ("admin", True)])
+@pytest.mark.parametrize("screened", [False, True])
+async def test_privileged_run_reads_require_actual_callers_matter_access(
+    roles: SimpleNamespace, role: str, admin: bool, screened: bool
+) -> None:
+    api = roles
+    planned = await awaiting(api)
+    root = planned["root_id"]
+    reader = await api.someone(role, admin=admin)
+    if screened:
+        async with api.env.factory.begin() as db:
+            db.add(ProjectMember(project_id=api.env.project_id, user_id=reader.id, role="blocked"))
+    api.act_as(reader)
+    for path in (f"chat-runs/{root}", f"{root}/tree", f"{root}/sessions/{root}/trace"):
+        response = await api.client.get(f"{BASE}/{path}")
+        assert response.status_code == 404, response.text
+    assert await auditor_rows(api, reader) == []
+
+
+async def test_screened_owner_cannot_use_chat_run_composer_or_retained_results(
+    roles: SimpleNamespace,
+) -> None:
+    api = roles
+    planned = await awaiting(api)
+    root = planned["root_id"]
+    async with api.env.factory.begin() as db:
+        db.add(
+            ProjectMember(project_id=api.env.project_id, user_id=api.env.owner_id, role="blocked")
+        )
+    for path in (
+        f"{CHATS}/{planned['chat_id']}/run-profiles",
+        f"{CHATS}/{planned['chat_id']}/run-documents",
+        f"{CHATS}/{planned['chat_id']}/messages",
+        f"{CHATS}/{planned['chat_id']}/receipts",
+        f"{BASE}/chat-runs/{root}",
+    ):
+        response = await api.client.get(path)
+        assert response.status_code == 404, response.text
+
+
+async def test_moving_a_chat_does_not_release_its_retained_run_matter(
+    roles: SimpleNamespace,
+) -> None:
+    from app.api.chats import _load_visible_chat
+
+    api = roles
+    planned = await awaiting(api)
+    chat_id = UUID(planned["chat_id"])
+    async with api.env.factory.begin() as db:
+        await db.execute(update(Chat).where(Chat.id == chat_id).values(project_id=None))
+        db.add(
+            ProjectMember(project_id=api.env.project_id, user_id=api.env.owner_id, role="blocked")
+        )
+    for suffix in ("messages", "receipts", "run-profiles", "run-documents"):
+        response = await api.client.get(f"{CHATS}/{chat_id}/{suffix}")
+        assert response.status_code == 404, response.text
+    # The write/replay loader must refuse before any retained text reaches a model.
+    async with api.env.factory() as db:
+        with pytest.raises(NotFound):
+            await _load_visible_chat(db, chat_id, api.env.owner_id)

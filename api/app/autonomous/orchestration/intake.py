@@ -51,6 +51,7 @@ from app.autonomous.orchestration.reading import (
     WITHHELD_ANSWER,
     MatterTerms,
     attached_knowledge_bases,
+    file_access_filter,
     filed_in_a_matter,
     filed_in_another_matter,
     holding_matters,
@@ -589,7 +590,12 @@ async def list_documents(
                 filed_in_a_matter() if project_id is None else filed_in_another_matter(project_id),
             )
             .outerjoin(Document, Document.file_id == File.id)
-            .where(File.id.in_(wanted), File.owner_id == owner_id, File.deleted_at.is_(None))
+            .where(
+                File.id.in_(wanted),
+                File.owner_id == owner_id,
+                File.deleted_at.is_(None),
+                file_access_filter(owner_id),
+            )
             .order_by(File.created_at, File.id)
         )
     ).all()

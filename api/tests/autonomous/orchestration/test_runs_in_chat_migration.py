@@ -331,7 +331,7 @@ def exercise(source_url: str) -> None:
         direct = uuid4()
         with pytest.raises(DBAPIError), target.begin() as db:
             root(db, direct, uuid4(), profile="new_harness_v1", status="completed")
-        command.upgrade(config, "head")
+        command.upgrade(config, "0077")
         with target.begin() as db:
             assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0077"
             # The orchestrator answered by itself: completed, and no plan revision.
@@ -354,7 +354,7 @@ def exercise(source_url: str) -> None:
             assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0077"
             db.execute(text("DELETE FROM autonomous_sessions WHERE id=:id"), {"id": direct})
         command.downgrade(config, "0076")
-        command.upgrade(config, "head")
+        command.upgrade(config, "0077")
         with target.connect() as db:
             assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0077"
     finally:

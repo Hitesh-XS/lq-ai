@@ -27,6 +27,7 @@ from sqlalchemy import select
 
 from app.api.dependencies import ActiveUser, RunActor
 from app.api.orchestration import Service, begin_run
+from app.authz.matters import matter_scope_filter, require_chat_run_access, require_matter
 from app.autonomous.orchestration.contracts import TaskText
 from app.autonomous.orchestration.intake import (
     MAX_SELECTED_DOCUMENTS,
@@ -243,6 +244,10 @@ async def _owned_chat(runtime: DemonstrationService, chat_id: uuid.UUID, user: U
                 Chat.autonomous_session_id.is_(None),
             )
         )
+        if chat is not None:
+            if chat.project_id is not None:
+                await require_matter(db, chat.project_id, user, include_archived=True)
+            await require_chat_run_access(db, chat.id, user)
     if chat is None:
         raise NotFound(f"Chat {chat_id} not found.", details={"chat_id": str(chat_id)})
     return chat
@@ -423,6 +428,10 @@ async def run_profiles(chat_id: uuid.UUID, user: ActiveUser, runtime: Service) -
                 .where(
                     OrchestrationRoot.owner_id == user.id,
                     OrchestrationRoot.status.in_(_ACTIVE),
+                    OrchestrationRoot.project_id.is_(None)
+                    | OrchestrationRoot.project_id.in_(
+                        select(Project.id).where(matter_scope_filter(user))
+                    ),
                 )
                 .limit(1)
             )
