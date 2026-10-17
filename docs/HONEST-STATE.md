@@ -16,6 +16,27 @@ Each table has three columns:
 
 Status markers reference the roadmap milestones (M1 → M4) documented in [README.md](../README.md#project-status) and [PRD §8](PRD.md#8-roadmap).
 
+## #658 installed-reference increment (design adopted; release pending)
+
+On-demand model reads are default-on for enabled, trusted filesystem skills,
+with an independent host-disable policy and retained authorized human supporting-
+file inspection. The initial profile supports admitted `references/` UTF-8 text:
+64 files, 64 KiB per explicit read, safe ASCII paths, no hidden names or symlinks.
+Large files stay discoverable and expose size/range/continuation metadata. Streamed
+validation and hashing retain only one bounded range in memory. Legacy
+`reference/` prompt loading is unchanged. Assets, broader paths, Unicode names,
+complete-list discovery remain compatibility follow-up work. This
+entry claims neither a released capability nor complete Agent Skills support.
+
+Verification targets include `api/tests/skills/test_reference_read.py`, skill
+API/chat and autonomous policy regressions, and supporting-file UI tests.
+The October 17 PR review records agent-run U-1–U-7 workflow checks and final
+maintainer/security review findings, including the durable-result boundary
+correction. These are implementation evidence, not a claim that the PR is
+merged or released. See the [operator notes](deploy/skill-capabilities.md).
+The D9/D5 policy clarifications record the maintainer's adopted direction as
+of October 17; no further design-ratification round is required.
+
 ## Where M1–M4 sit
 
 **M1 — Foundation (shipped).** Self-hostable conversational legal AI on the starter skills, with the engineering surfaces (audit, tier enforcement, projects/matters, knowledge bases + ingestion, saved prompts, receipts, the skill-creator pipeline) that later milestones build on. Provider adapters: Anthropic, OpenAI, Ollama (local Tier 1).

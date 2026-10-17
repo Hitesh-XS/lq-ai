@@ -36,6 +36,17 @@ components:
       - profile
       title: ActiveRun
       type: object
+    AdminConfigResponse:
+      additionalProperties: true
+      description: Preserve gateway configuration and add the API host's resource
+        policy.
+      properties:
+        skill_resource_policy:
+          $ref: '#/components/schemas/SkillResourcePolicy'
+      required:
+      - skill_resource_policy
+      title: AdminConfigResponse
+      type: object
     AdminPasswordResetResponse:
       description: '``POST /admin/users/{id}/reset-password`` response.'
       properties:
@@ -5981,6 +5992,62 @@ components:
       - detail
       title: ReceiptEvent
       type: object
+    ReferenceReadResult:
+      additionalProperties: false
+      description: An exact UTF-8 byte range; more content requires another explicit
+        call.
+      properties:
+        content:
+          title: Content
+          type: string
+        end_offset_bytes:
+          minimum: 0.0
+          title: End Offset Bytes
+          type: integer
+        has_more:
+          title: Has More
+          type: boolean
+        next_offset_bytes:
+          anyOf:
+          - minimum: 0.0
+            type: integer
+          - type: 'null'
+          title: Next Offset Bytes
+        offset_bytes:
+          minimum: 0.0
+          title: Offset Bytes
+          type: integer
+        path:
+          maxLength: 255
+          pattern: ^references(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,95}){1,6}$
+          title: Path
+          type: string
+        returned_bytes:
+          maximum: 65536.0
+          minimum: 0.0
+          title: Returned Bytes
+          type: integer
+        sha256:
+          pattern: ^[0-9a-f]{64}$
+          title: Sha256
+          type: string
+        size_bytes:
+          maximum: 9.223372036854776e+18
+          minimum: 0.0
+          title: Size Bytes
+          type: integer
+      required:
+      - path
+      - content
+      - size_bytes
+      - offset_bytes
+      - end_offset_bytes
+      - returned_bytes
+      - has_more
+      - next_offset_bytes
+      - sha256
+      title: ReferenceReadResult
+      type: object
     RefreshRequest:
       description: '`/auth/refresh` body per backend-openapi.yaml.'
       properties:
@@ -6741,6 +6808,151 @@ components:
       maxLength: 256
       minLength: 1
       type: string
+    Skill:
+      description: 'The shape ``GET /api/v1/skills/{name}`` returns.
+
+
+        Mirrors ``Skill`` in ``docs/api/backend-openapi.yaml`` (which is an
+
+        ``allOf`` of ``SkillSummary`` plus body fields). ``content_yaml`` is
+
+        the raw frontmatter block (re-emitted, not the source bytes), and
+
+        ``content_md`` is the body markdown. Reference and example files
+
+        are loaded lazily — only when this shape is materialised.
+
+
+        Wave D.2 — ``id`` surfaces the underlying ``user_skills.id`` row UUID
+
+        when the resolved scope is ``user`` or ``team``. Built-in
+
+        (filesystem-canonical) skills have no DB row and return ``None``.
+
+        The skill detail page''s Versions tab needs this id to call the
+
+        audit-history endpoint; surfacing it on the detail GET avoids a
+
+        second round-trip to look it up by slug.'
+      properties:
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+        content_md:
+          title: Content Md
+          type: string
+        content_yaml:
+          title: Content Yaml
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        ensemble_verification:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Ensemble Verification
+        example_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Example Files
+          type: array
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Id
+        jurisdiction:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Jurisdiction
+        minimum_inference_tier:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Minimum Inference Tier
+        name:
+          title: Name
+          type: string
+        on_demand_files:
+          items:
+            $ref: '#/components/schemas/SkillFileRef'
+          title: On Demand Files
+          type: array
+        output_format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Format
+        reference_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Reference Files
+          type: array
+        reference_read_enabled:
+          default: true
+          title: Reference Read Enabled
+          type: boolean
+        scope:
+          enum:
+          - builtin
+          - user
+          - team
+          title: Scope
+          type: string
+        script_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Script Files
+          type: array
+        source:
+          default: built-in
+          enum:
+          - built-in
+          - community
+          - user
+          - team
+          title: Source
+          type: string
+        tags:
+          items:
+            type: string
+          title: Tags
+          type: array
+        title:
+          title: Title
+          type: string
+        tool_usage:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tool Usage
+        unavailable_tool_usage:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Unavailable Tool Usage
+        version:
+          title: Version
+          type: string
+      required:
+      - name
+      - version
+      - scope
+      - title
+      - content_yaml
+      - content_md
+      title: Skill
+      type: object
     SkillAutocompleteItem:
       description: 'One row in the autocomplete response.
 
@@ -6800,6 +7012,35 @@ components:
       required:
       - results
       title: SkillAutocompleteResponse
+      type: object
+    SkillFile:
+      description: A reference or example file relative to the skill folder.
+      properties:
+        content:
+          title: Content
+          type: string
+        path:
+          title: Path
+          type: string
+      required:
+      - path
+      - content
+      title: SkillFile
+      type: object
+    SkillFileRef:
+      description: A file the skill ships that is read on request, not sent with the
+        prompt.
+      properties:
+        path:
+          title: Path
+          type: string
+        size_bytes:
+          title: Size Bytes
+          type: integer
+      required:
+      - path
+      - size_bytes
+      title: SkillFileRef
       type: object
     SkillForkBody:
       additionalProperties: false
@@ -6896,8 +7137,156 @@ components:
       - name
       title: SkillInputs
       type: object
+    SkillInspection:
+      description: Human-only inspection response; never used by the gateway resolver.
+      properties:
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+        content_md:
+          title: Content Md
+          type: string
+        content_yaml:
+          title: Content Yaml
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        ensemble_verification:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Ensemble Verification
+        example_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Example Files
+          type: array
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Id
+        jurisdiction:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Jurisdiction
+        minimum_inference_tier:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Minimum Inference Tier
+        name:
+          title: Name
+          type: string
+        on_demand_contents:
+          items:
+            $ref: '#/components/schemas/ReferenceReadResult'
+          title: On Demand Contents
+          type: array
+        on_demand_files:
+          items:
+            $ref: '#/components/schemas/SkillFileRef'
+          title: On Demand Files
+          type: array
+        output_format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Format
+        reference_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Reference Files
+          type: array
+        reference_read_enabled:
+          default: true
+          title: Reference Read Enabled
+          type: boolean
+        scope:
+          enum:
+          - builtin
+          - user
+          - team
+          title: Scope
+          type: string
+        script_files:
+          items:
+            $ref: '#/components/schemas/SkillFile'
+          title: Script Files
+          type: array
+        source:
+          default: built-in
+          enum:
+          - built-in
+          - community
+          - user
+          - team
+          title: Source
+          type: string
+        tags:
+          items:
+            type: string
+          title: Tags
+          type: array
+        title:
+          title: Title
+          type: string
+        tool_usage:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tool Usage
+        unavailable_tool_usage:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Unavailable Tool Usage
+        version:
+          title: Version
+          type: string
+      required:
+      - name
+      - version
+      - scope
+      - title
+      - content_yaml
+      - content_md
+      title: SkillInspection
+      type: object
     SkillPin:
       additionalProperties: true
+      type: object
+    SkillResourcePolicy:
+      description: Current API/worker host policy for installed skill reference reads.
+      properties:
+        max_files:
+          title: Max Files
+          type: integer
+        max_read_bytes:
+          title: Max Read Bytes
+          type: integer
+        reference_read_enabled:
+          title: Reference Read Enabled
+          type: boolean
+        scope:
+          title: Scope
+          type: string
+      required:
+      - reference_read_enabled
+      - max_files
+      - max_read_bytes
+      - scope
+      title: SkillResourcePolicy
       type: object
     SlackWorkspaceCreate:
       additionalProperties: false
@@ -8341,6 +8730,7 @@ components:
       - skill_workspace_read
       - skill_workspace_write
       - run_bundled_script
+      - skill_reference_read
       - plan
       - retrieve_authority
       - workspace_read
@@ -9870,9 +10260,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                title: Response Get Admin Config Api V1 Admin Config Get
-                type: object
+                $ref: '#/components/schemas/AdminConfigResponse'
           description: Successful Response
       security:
       - OAuth2PasswordBearer: []
@@ -14716,11 +15104,9 @@ paths:
         \ calls this with the authenticated user's UUID during\nC2 prompt assembly\
         \ so shadows actually shape the system prompt;\ncallers that don't care about\
         \ user-scope (e.g., admin tooling)\nomit ``user_id`` and get the registry\
-        \ view directly.\n\nCache key strategy (D8.1b decision): the gateway-side\
-        \ cache stays\nkeyed on ``(name, user_id)``. Team-membership changes are\n\
-        operator-mediated and rare; the existing 60s skill-cache TTL\nabsorbs propagation\
-        \ lag without a per-membership signature in\nthe key. Re-evaluate if team-membership\
-        \ churn becomes routine."
+        \ view directly.\n\nUser-resolved gateway reads bypass the TTL cache so the\
+        \ current\nreplacement and membership agree with the backend's tool binding.\n\
+        Registry-only callers retain the gateway's 60s cache."
       operationId: get_skill_internal_api_v1_internal_skills__skill_name__get
       parameters:
       - in: path
@@ -16943,7 +17329,8 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/Skill'
           description: Successful Response
         '422':
           content:
@@ -16962,19 +17349,16 @@ paths:
         files.
 
 
-        Same shape as ``GET /skills/{skill_name}`` (the user-facing read
+        Adds first bounded ranges of installed ``references/`` for human inspection.
 
-        endpoint). PRD §3.4 names this endpoint explicitly as the contract
+        Supply reference_path and offset_bytes for another explicit range; use the
 
-        the "view this skill" affordance + the skill inspector side panel
+        prior sha256 as expected_sha256 to refuse changed text. Each range is at most
 
-        target; exposing it under a distinct URL lets the frontend use URL
+        65536 UTF-8 bytes, including when runtime model reads are disabled. Applies
+        the D8.1b resolution
 
-        semantics ("/contents") to signal inspection intent, even though
-
-        the response body is the same as the base GET. Applies the same
-
-        D8.1b resolution stack (user > team > built-in).'
+        stack (user > team > built-in); DB shadows have no filesystem resources.'
       operationId: get_skill_contents_api_v1_skills__skill_name__contents_get
       parameters:
       - in: path
@@ -16983,11 +17367,49 @@ paths:
         schema:
           title: Skill Name
           type: string
+      - in: query
+        name: reference_path
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 255
+            pattern: ^references(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,95}){1,6}$
+            type: string
+          - type: 'null'
+          title: Reference Path
+      - in: query
+        name: offset_bytes
+        required: false
+        schema:
+          default: 0
+          maximum: 9223372036854775807
+          minimum: 0
+          title: Offset Bytes
+          type: integer
+      - in: query
+        name: max_bytes
+        required: false
+        schema:
+          default: 65536
+          maximum: 65536
+          minimum: 1
+          title: Max Bytes
+          type: integer
+      - in: query
+        name: expected_sha256
+        required: false
+        schema:
+          anyOf:
+          - pattern: ^[0-9a-f]{64}$
+            type: string
+          - type: 'null'
+          title: Expected Sha256
       responses:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/SkillInspection'
           description: Successful Response
         '422':
           content:

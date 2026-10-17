@@ -83,6 +83,13 @@ export async function deleteAlias(name: string): Promise<void> {
  * full ``GatewayConfig.model_dump`` so unknown fields ride along
  * unmodeled.
  */
+export interface SkillResourcePolicy {
+	reference_read_enabled: boolean;
+	max_files: number;
+	max_read_bytes: number;
+	scope: string;
+}
+
 export interface AdminConfigSnapshot {
 	providers: Array<{
 		name: string;
@@ -92,6 +99,7 @@ export interface AdminConfigSnapshot {
 		models?: string[];
 	}>;
 	model_aliases: Record<string, unknown>;
+	skill_resource_policy?: SkillResourcePolicy;
 	[k: string]: unknown;
 }
 

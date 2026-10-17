@@ -515,6 +515,21 @@ export interface SkillReferenceFile {
 	content: string;
 }
 
+export interface SkillReferencePage extends SkillReferenceFile {
+	size_bytes: number;
+	offset_bytes: number;
+	end_offset_bytes: number;
+	returned_bytes: number;
+	has_more: boolean;
+	next_offset_bytes: number | null;
+	sha256: string;
+}
+
+export interface SkillResourceFile {
+	path: string;
+	size_bytes: number;
+}
+
 export interface Skill extends SkillSummary {
 	/**
 	 * Wave D.2 — underlying ``user_skills.id`` row UUID for user/team scope;
@@ -529,6 +544,11 @@ export interface Skill extends SkillSummary {
 	reference_files?: SkillReferenceFile[];
 	example_files?: SkillReferenceFile[];
 	script_files?: SkillReferenceFile[];
+	/** Available on-demand references; file contents are fetched only for human inspection. */
+	on_demand_files?: SkillResourceFile[];
+	reference_read_enabled?: boolean;
+	/** Present on the human-facing /contents response, never model-facing metadata. */
+	on_demand_contents?: SkillReferencePage[];
 	/**
 	 * Declared inputs driving the composer's input form: required first,
 	 * then optional. Not part of the `GET /skills/{name}` payload — the chat

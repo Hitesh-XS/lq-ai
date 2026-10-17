@@ -31,6 +31,8 @@ from typing import Final
 import yaml
 from pydantic import ValidationError
 
+from app.skills.capabilities import MAX_REFERENCE_FILES, REFERENCE_PATH_PATTERN
+from app.skills.references import read_reference_snapshot
 from app.skills.registry import MutableSkillRegistry, SkillRecord, SkillRegistry
 from app.skills.schema import SkillFrontmatter, SkillSource
 
@@ -48,6 +50,11 @@ _FRONTMATTER_RE: Final = re.compile(
 # File names treated specially when scanning a skill folder.
 _SKILL_FILE_NAME = "SKILL.md"
 _REFERENCE_DIR = "reference"
+# ``references/`` is the Agent Skills name, and most community skills ship it.
+# Those skills expect the model to open one file when the task needs it, so
+# the files are listed here and read through ``skill_reference_read``; they
+# are never appended to the prompt the way ``reference/`` is.
+_ON_DEMAND_DIR = "references"
 _EXAMPLES_DIR = "examples"
 
 # The installer reads a third-party catalog on every request. Bound input
@@ -285,7 +292,11 @@ def _validate_catalog_yaml(value: object, skill_name: str) -> None:
 
 
 def _load_one(
-    folder: Path, source: SkillSource = "built-in", *, bounded: bool = False
+    folder: Path,
+    source: SkillSource = "built-in",
+    *,
+    bounded: bool = False,
+    quiet: bool = False,
 ) -> SkillRecord:
     """Load a single skill from its folder. Raises LoaderError on failure.
 
@@ -372,6 +383,7 @@ def _load_one(
             raise LoaderError(folder.name, "frontmatter metadata must contain JSON values") from exc
 
     reference_paths = _list_subfolder_files(folder / _REFERENCE_DIR)
+    on_demand_paths = _list_on_demand_files(folder, quiet=quiet)
     example_paths = _list_subfolder_files(folder / _EXAMPLES_DIR)
     script_paths: list[Path] = []
     capabilities = frontmatter.lq_ai.capabilities if frontmatter.lq_ai else None
@@ -413,6 +425,7 @@ def _load_one(
         reference_paths=tuple(reference_paths),
         example_paths=tuple(example_paths),
         script_paths=tuple(script_paths),
+        on_demand_paths=tuple(on_demand_paths),
     )
 
 
@@ -432,6 +445,56 @@ def _list_subfolder_files(subfolder: Path) -> list[Path]:
     for path in sorted(subfolder.rglob("*")):
         if path.is_file() and not path.name.startswith("."):
             out.append(path)
+    return out
+
+
+def _list_on_demand_files(skill_folder: Path, *, quiet: bool = False) -> list[Path]:
+    """List the files in a skill's ``references/`` dir that can be read on request.
+
+    A file is listed only if ``skill_reference_read`` could return it: a
+    regular file inside the skill folder, reached through no symlink and no
+    hidden name, with a path the tool's argument accepts, holding valid
+    UTF-8 text. Large files stay discoverable and are read in bounded ranges. At most :data:`MAX_REFERENCE_FILES` are listed.
+    Anything else is left out with a warning and the skill still loads: a
+    community skill with one unsupported data file should not lose the rest.
+    ``quiet`` drops the warning, for callers that re-read a skill already
+    loaded (the pin check runs on every bind).
+    """
+
+    subfolder = skill_folder / _ON_DEMAND_DIR
+    if subfolder.is_symlink() or not subfolder.is_dir():
+        return []
+    root = skill_folder.resolve()
+    out: list[Path] = []
+    for path in sorted(subfolder.rglob("*")):
+        relative = path.relative_to(skill_folder)
+        if any(part.startswith(".") for part in relative.parts):
+            continue
+        if path.is_dir() and not path.is_symlink():
+            continue
+        reason = None
+        if path.resolve() != root / relative or not path.is_file():
+            reason = "not a regular file inside the skill folder"
+        elif len(relative.as_posix()) > 255 or not re.fullmatch(
+            REFERENCE_PATH_PATTERN, relative.as_posix()
+        ):
+            reason = "unsupported path"
+        elif len(out) >= MAX_REFERENCE_FILES:
+            reason = f"more than {MAX_REFERENCE_FILES} files"
+        else:
+            try:
+                read_reference_snapshot(skill_folder, path)
+            except (OSError, UnicodeError, ValueError):
+                reason = "unreadable or outside bounded UTF-8 text profile"
+        if reason is None:
+            out.append(path)
+        elif not quiet:
+            log.warning(
+                "skill %s: %s is not offered for on-demand reading (%s)",
+                skill_folder.name,
+                relative.as_posix(),
+                reason,
+            )
     return out
 
 
