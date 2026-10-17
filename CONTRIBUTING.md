@@ -412,6 +412,24 @@ alongside the target. When the measured median exceeds the target, the number is
 three preconditions for setting a 1.0 date
 ([ADR 0030](docs/adr/0030-pacing-1.0-preconditions-and-named-trains.md)).
 
+The figure comes from `scripts/pr_response_time.py`, which needs only Python 3.12+ and a
+read-only GitHub token (`GITHUB_TOKEN`, or whatever `gh auth token` returns):
+
+```bash
+python scripts/pr_response_time.py --quarter 2026-Q3                      # one quarter
+python scripts/pr_response_time.py --month 2026-09                        # one month
+python scripts/pr_response_time.py --since 2026-07-01 --until 2026-09-30  # any range
+python scripts/pr_response_time.py --quarter 2026-Q3 --json               # machine-readable
+```
+
+It prints the median over answered PRs, the count of PRs opened, how many were excluded as
+automated dependency bumps, every PR still waiting with how long it has waited, and the exact
+rule it applied for "substantive maintainer response" together with what that rule gets wrong.
+Reading the maintainer team needs the `read:org` scope; without it, pass `--maintainer LOGIN`.
+The cadence is the maintainers' call: a quarterly run matches the ADR 0030 checkpoint, and a
+monthly run surfaces a bad stretch while it can still be corrected. Automating the publication
+is DE-406.
+
 **Review slots.** Maintainers work the open queue in a recurring weekly block, in this priority
 order:
 
